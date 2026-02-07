@@ -32,32 +32,45 @@ function ShoppingLists() {
   async function loadShoppingLists() {
     try {
       // Load misc items list
-      let { data: miscList } = await supabase
+      let { data: miscList, error: listError } = await supabase
         .from('shopping_lists')
         .select('id')
         .eq('list_type', 'misc_items')
         .eq('status', 'active')
-        .single()
+        .maybeSingle()
+
+      if (listError && listError.code !== 'PGRST116') {
+        console.error('Error loading shopping list:', listError)
+      }
 
       // Create misc list if it doesn't exist
       if (!miscList) {
-        const { data: newList } = await supabase
+        const { data: newList, error: createError } = await supabase
           .from('shopping_lists')
           .insert({ list_type: 'misc_items', status: 'active' })
           .select()
           .single()
+        
+        if (createError) {
+          console.error('Error creating shopping list:', createError)
+          return
+        }
         miscList = newList
       }
 
       // Load misc items
       if (miscList) {
-        const { data: items } = await supabase
+        const { data: items, error: itemsError } = await supabase
           .from('shopping_list_items')
           .select('*')
           .eq('shopping_list_id', miscList.id)
           .order('created_at')
 
-        setMiscItems(items || [])
+        if (itemsError) {
+          console.error('Error loading items:', itemsError)
+        } else {
+          setMiscItems(items || [])
+        }
       }
 
       // TODO: Load weekly and monthly lists
@@ -70,7 +83,6 @@ function ShoppingLists() {
       setLoading(false)
     }
   }
-
   async function addMiscItem() {
     if (!newItemText.trim()) return
 
