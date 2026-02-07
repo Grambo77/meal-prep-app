@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react'
-import { supabase } from '../supabaseClient'
+
+const SUPABASE_URL = 'https://yxfbhtapdtyxkxgfymvo.supabase.co'
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl4ZmJodGFwZHR5eGt4Z2Z5bXZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA0OTA3NDgsImV4cCI6MjA4NjA2Njc0OH0.Ijsv8ZorbAiQe0aWpLleB4k_teaqNwqHj97l8vNPOvo'
 
 function ShoppingLists() {
-  const [activeTab, setActiveTab] = useState('misc') // Start with misc since it's what they have
+  const [activeTab, setActiveTab] = useState('misc')
   const [miscItems, setMiscItems] = useState([])
   const [weeklyItems, setWeeklyItems] = useState([])
   const [monthlyItems, setMonthlyItems] = useState([])
@@ -12,68 +14,54 @@ function ShoppingLists() {
   useEffect(() => {
     loadShoppingLists()
     
-    // Set up real-time subscription for misc items
-    const subscription = supabase
-      .channel('shopping_updates')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'shopping_list_items'
-      }, () => {
-        loadShoppingLists()
-      })
-      .subscribe()
-
-    return () => {
-      subscription.unsubscribe()
-    }
+    // Poll for updates every 5 seconds
+    const interval = setInterval(loadShoppingLists, 5000)
+    return () => clearInterval(interval)
   }, [])
+
+  async function apiRequest(endpoint, options = {}) {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/${endpoint}`, {
+      ...options,
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+        ...options.headers
+      }
+    })
+    
+    if (!response.ok) {
+      const error = await response.text()
+      console.error('API Error:', error)
+      throw new Error(error)
+    }
+    
+    return response.json()
+  }
 
   async function loadShoppingLists() {
     try {
-      // Load misc items list
-      let { data: miscList, error: listError } = await supabase
-        .from('shopping_lists')
-        .select('id')
-        .eq('list_type', 'misc_items')
-        .eq('status', 'active')
-        .maybeSingle()
-
-      if (listError && listError.code !== 'PGRST116') {
-        console.error('Error loading shopping list:', listError)
-      }
-
-      // Create misc list if it doesn't exist
+      // Get misc shopping list
+      let lists = await apiRequest('shopping_lists?list_type=eq.misc_items&status=eq.active&select=id')
+      
+      let miscList = lists[0]
+      
+      // Create if doesn't exist
       if (!miscList) {
-        const { data: newList, error: createError } = await supabase
-          .from('shopping_lists')
-          .insert({ list_type: 'misc_items', status: 'active' })
-          .select()
-          .single()
-        
-        if (createError) {
-          console.error('Error creating shopping list:', createError)
-          return
-        }
-        miscList = newList
+        const newLists = await apiRequest('shopping_lists', {
+          method: 'POST',
+          body: JSON.stringify({ list_type: 'misc_items', status: 'active' })
+        })
+        miscList = newLists[0]
       }
 
-      // Load misc items
+      // Load items for this list
       if (miscList) {
-        const { data: items, error: itemsError } = await supabase
-          .from('shopping_list_items')
-          .select('*')
-          .eq('shopping_list_id', miscList.id)
-          .order('created_at')
-
-        if (itemsError) {
-          console.error('Error loading items:', itemsError)
-        } else {
-          setMiscItems(items || [])
-        }
+        const items = await apiRequest(`shopping_list_items?shopping_list_id=eq.${miscList.id}&order=created_at.asc&select=*`)
+        setMiscItems(items || [])
       }
 
-      // TODO: Load weekly and monthly lists
       setWeeklyItems([])
       setMonthlyItems([])
 
@@ -83,35 +71,32 @@ function ShoppingLists() {
       setLoading(false)
     }
   }
+
   async function addMiscItem() {
     if (!newItemText.trim()) return
 
     try {
-      // Get or create misc list
-      let { data: miscList } = await supabase
-        .from('shopping_lists')
-        .select('id')
-        .eq('list_type', 'misc_items')
-        .eq('status', 'active')
-        .single()
+      // Get or create list
+      let lists = await apiRequest('shopping_lists?list_type=eq.misc_items&status=eq.active&select=id')
+      let miscList = lists[0]
 
       if (!miscList) {
-        const { data: newList } = await supabase
-          .from('shopping_lists')
-          .insert({ list_type: 'misc_items', status: 'active' })
-          .select()
-          .single()
-        miscList = newList
+        const newLists = await apiRequest('shopping_lists', {
+          method: 'POST',
+          body: JSON.stringify({ list_type: 'misc_items', status: 'active' })
+        })
+        miscList = newLists[0]
       }
 
       // Add item
-      await supabase
-        .from('shopping_list_items')
-        .insert({
+      await apiRequest('shopping_list_items', {
+        method: 'POST',
+        body: JSON.stringify({
           shopping_list_id: miscList.id,
           item_name: newItemText.trim(),
           checked: false
         })
+      })
 
       setNewItemText('')
       loadShoppingLists()
@@ -122,10 +107,10 @@ function ShoppingLists() {
 
   async function toggleMiscItem(itemId, currentChecked) {
     try {
-      await supabase
-        .from('shopping_list_items')
-        .update({ checked: !currentChecked })
-        .eq('id', itemId)
+      await apiRequest(`shopping_list_items?id=eq.${itemId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ checked: !currentChecked })
+      })
 
       loadShoppingLists()
     } catch (error) {
@@ -135,10 +120,9 @@ function ShoppingLists() {
 
   async function deleteMiscItem(itemId) {
     try {
-      await supabase
-        .from('shopping_list_items')
-        .delete()
-        .eq('id', itemId)
+      await apiRequest(`shopping_list_items?id=eq.${itemId}`, {
+        method: 'DELETE'
+      })
 
       loadShoppingLists()
     } catch (error) {
@@ -263,8 +247,8 @@ function ShoppingLists() {
 
           <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--bg)', borderRadius: '6px' }}>
             <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-              💡 <strong>Tip:</strong> Misc items sync across all devices in real-time. 
-              Add items from any phone or computer!
+              💡 <strong>Tip:</strong> Misc items sync across all devices. 
+              Add items from any phone or computer! Refreshes every 5 seconds.
             </p>
           </div>
         </div>
@@ -279,9 +263,6 @@ function ShoppingLists() {
           <div className="empty-state">
             <h3>Coming Soon!</h3>
             <p>This will auto-generate from your weekly meal plan</p>
-            <p style={{ marginTop: '1rem' }}>
-              Based on Mon-Thu meals, it will list: onions, peppers, broccoli, etc.
-            </p>
           </div>
         </div>
       )}
@@ -295,9 +276,6 @@ function ShoppingLists() {
           <div className="empty-state">
             <h3>Coming Soon!</h3>
             <p>This will generate from your 4-week meal plan</p>
-            <p style={{ marginTop: '1rem' }}>
-              Proteins to freeze, pantry items, and monthly stock-ups
-            </p>
           </div>
         </div>
       )}
