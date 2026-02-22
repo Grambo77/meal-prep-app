@@ -78,7 +78,34 @@ function MealPlanner() {
     return mealPlan.some(m => m.recipe_id === recipeId)
   }
 
-  // Drag handlers
+  // Assign a recipe to a date (used by both drag-drop and tap-to-select)
+  async function assignMeal(date, recipe) {
+    if (!recipe) return
+    const dateStr = format(date, 'yyyy-MM-dd')
+    const dayName = format(date, 'EEEE')
+    try {
+      const existingMeal = getMealForDate(date)
+      if (existingMeal) {
+        const { error } = await supabase
+          .from('meal_plan')
+          .update({ recipe_id: recipe.id, day_of_week: dayName })
+          .eq('id', existingMeal.id)
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('meal_plan')
+          .insert({ date: dateStr, day_of_week: dayName, recipe_id: recipe.id })
+        if (error) throw error
+      }
+      await loadData()
+    } catch (error) {
+      console.error('Error saving meal:', error)
+      alert('Failed to save meal. Please try again.')
+    }
+    setDraggedRecipe(null)
+  }
+
+  // Drag handlers (desktop)
   function handleDragStart(e, recipe) {
     setDraggedRecipe(recipe)
     e.dataTransfer.effectAllowed = 'move'
@@ -90,49 +117,18 @@ function MealPlanner() {
     e.dataTransfer.dropEffect = 'move'
   }
 
-  async function handleDrop(e, date) {
+  function handleDrop(e, date) {
     e.preventDefault()
-    if (!draggedRecipe) return
+    assignMeal(date, draggedRecipe)
+  }
 
-    const dateStr = format(date, 'yyyy-MM-dd')
-    const dayName = format(date, 'EEEE')
-    
-    try {
-      // Check if there's already a meal on this date
-      const existingMeal = getMealForDate(date)
-      
-      if (existingMeal) {
-        // Update existing meal
-        const { error } = await supabase
-          .from('meal_plan')
-          .update({ 
-            recipe_id: draggedRecipe.id,
-            day_of_week: dayName
-          })
-          .eq('id', existingMeal.id)
-        
-        if (error) throw error
-      } else {
-        // Insert new meal
-        const { error } = await supabase
-          .from('meal_plan')
-          .insert({
-            date: dateStr,
-            day_of_week: dayName,
-            recipe_id: draggedRecipe.id
-          })
-        
-        if (error) throw error
-      }
+  // Tap-to-select handler (mobile)
+  function handleRecipeTap(recipe) {
+    setDraggedRecipe(prev => prev?.id === recipe.id ? null : recipe)
+  }
 
-      // Reload data
-      await loadData()
-    } catch (error) {
-      console.error('Error saving meal:', error)
-      alert('Failed to save meal. Please try again.')
-    }
-    
-    setDraggedRecipe(null)
+  function handleDayTap(date) {
+    if (draggedRecipe) assignMeal(date, draggedRecipe)
   }
 
   async function removeMeal(mealId) {
@@ -159,26 +155,29 @@ function MealPlanner() {
       const isCookingDay = ['Monday', 'Tuesday', 'Wednesday', 'Thursday'].includes(dayName)
       const meal = getMealForDate(date)
 
+      const isDropTarget = isCookingDay && !!draggedRecipe
+
       days.push(
         <div
           key={i}
-          className={`planner-day ${isCookingDay ? 'cooking-day' : 'off-day'} ${isToday ? 'today' : ''}`}
+          className={`planner-day ${isCookingDay ? 'cooking-day' : 'off-day'} ${isToday ? 'today' : ''} ${isDropTarget ? 'drop-target' : ''}`}
           onDragOver={isCookingDay ? handleDragOver : undefined}
           onDrop={isCookingDay ? (e) => handleDrop(e, date) : undefined}
+          onClick={isCookingDay ? () => handleDayTap(date) : undefined}
         >
           <div className="day-header">
             <span className="day-name">{dayName.slice(0, 3)}</span>
             <span className="day-date">{format(date, 'M/d')}</span>
           </div>
-          
+
           <div className="day-content">
             {meal && meal.recipe ? (
               <div className="planned-meal">
                 <span className="meal-emoji">{getRecipeEmoji(meal.recipe.name)}</span>
                 <span className="meal-name">{meal.recipe.name}</span>
-                <button 
+                <button
                   className="remove-meal"
-                  onClick={() => removeMeal(meal.id)}
+                  onClick={(e) => { e.stopPropagation(); removeMeal(meal.id) }}
                   title="Remove meal"
                 >
                   ×
@@ -186,7 +185,7 @@ function MealPlanner() {
               </div>
             ) : isCookingDay ? (
               <div className="drop-zone">
-                <span>Drop recipe here</span>
+                <span>{draggedRecipe ? 'Tap to assign' : 'Drop recipe here'}</span>
               </div>
             ) : dayName === 'Sunday' ? (
               <div className="special-day">
@@ -598,12 +597,37 @@ function MealPlanner() {
         .legend-dot.cooking { background: var(--primary, #2d5016); }
         .legend-dot.special { background: #f8f8f8; border: 1px dashed #ccc; }
         .legend-dot.today { box-shadow: 0 0 0 2px var(--accent, #ff6b35); }
+
+        /* Tap-to-select states */
+        .recipe-card.selected {
+          border-color: var(--accent, #ff6b35) !important;
+          background: white;
+          box-shadow: 0 2px 8px rgba(255, 107, 53, 0.25);
+        }
+
+        .planner-day.drop-target.cooking-day {
+          border-color: var(--accent, #ff6b35);
+          background: rgba(255, 107, 53, 0.05);
+          cursor: pointer;
+        }
+
+        .planner-day.drop-target .drop-zone {
+          border-color: var(--accent, #ff6b35);
+          color: var(--accent, #ff6b35);
+        }
+
+        /* Always show remove button on touch devices */
+        @media (hover: none) {
+          .remove-meal {
+            opacity: 1 !important;
+          }
+        }
       `}</style>
 
       <div className="planner-header">
         <div>
           <h1 className="planner-title">📅 Meal Planner</h1>
-          <p className="planner-subtitle">Drag recipes to Mon-Thu cooking days</p>
+          <p className="planner-subtitle">Tap or drag recipes to Mon–Thu cooking days</p>
         </div>
       </div>
 
@@ -633,29 +657,38 @@ function MealPlanner() {
 
         <div className="recipe-sidebar">
           <h3 className="sidebar-title">Your Recipes</h3>
-          <p className="sidebar-hint">Drag a recipe to assign it to a day</p>
+          <p className="sidebar-hint">
+            {draggedRecipe
+              ? `"${draggedRecipe.name}" selected — tap a day to assign`
+              : 'Tap or drag a recipe to assign it'}
+          </p>
           
           <div className="recipe-list">
-            {recipes.map(recipe => (
-              <div
-                key={recipe.id}
-                className={`recipe-card ${isRecentlyUsed(recipe.id) ? 'recently-used' : ''}`}
-                draggable
-                onDragStart={(e) => handleDragStart(e, recipe)}
-                onDragEnd={() => setDraggedRecipe(null)}
-              >
-                <div className="recipe-emoji-sidebar">
-                  {getRecipeEmoji(recipe.name)}
-                </div>
-                <div className="recipe-info">
-                  <div className="recipe-name">{recipe.name}</div>
-                  <div className="recipe-meta">
-                    {recipe.prep_time_minutes && `${recipe.prep_time_minutes} min prep`}
-                    {recipe.cook_time_minutes && ` · ${recipe.cook_time_minutes} min cook`}
+            {recipes.map(recipe => {
+              const isSelected = draggedRecipe?.id === recipe.id
+              return (
+                <div
+                  key={recipe.id}
+                  className={`recipe-card ${isRecentlyUsed(recipe.id) ? 'recently-used' : ''} ${isSelected ? 'selected' : ''}`}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, recipe)}
+                  onDragEnd={() => setDraggedRecipe(null)}
+                  onClick={() => handleRecipeTap(recipe)}
+                >
+                  <div className="recipe-emoji-sidebar">
+                    {getRecipeEmoji(recipe.name)}
                   </div>
+                  <div className="recipe-info">
+                    <div className="recipe-name">{recipe.name}</div>
+                    <div className="recipe-meta">
+                      {recipe.prep_time_minutes && `${recipe.prep_time_minutes} min prep`}
+                      {recipe.cook_time_minutes && ` · ${recipe.cook_time_minutes} min cook`}
+                    </div>
+                  </div>
+                  {isSelected && <span style={{ fontSize: '0.7rem', color: 'var(--accent, #ff6b35)', fontWeight: 700 }}>✓</span>}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </div>
