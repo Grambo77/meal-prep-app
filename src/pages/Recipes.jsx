@@ -15,6 +15,19 @@ const EMPTY_FORM = {
 
 const EMPTY_INGREDIENT = { name: '', quantity: '', unit: '', notes: '' }
 
+function parseQuantity(str) {
+  if (!str || !str.trim()) return 0
+  const s = str.trim()
+  // Mixed number e.g. "1 1/2"
+  const mixed = s.match(/^(\d+)\s+(\d+)\/(\d+)$/)
+  if (mixed) return parseInt(mixed[1]) + parseInt(mixed[2]) / parseInt(mixed[3])
+  // Fraction e.g. "1/2"
+  const frac = s.match(/^(\d+)\/(\d+)$/)
+  if (frac) return parseInt(frac[1]) / parseInt(frac[2])
+  const n = parseFloat(s)
+  return isNaN(n) ? 0 : n
+}
+
 function Recipes() {
   const [recipes, setRecipes] = useState([])
   const [selectedRecipe, setSelectedRecipe] = useState(null)
@@ -226,7 +239,7 @@ function Recipes() {
           .insert({
             recipe_id: recipeData.id,
             ingredient_id: ingData.id,
-            quantity: ing.quantity.trim() || '',
+            quantity: parseQuantity(ing.quantity),
             unit: ing.unit.trim() || '',
             notes: ing.notes.trim() || '',
           })
