@@ -149,7 +149,7 @@ function Inventory() {
       setScanStatus('Point camera at a barcode...')
       // Request HD resolution so barcodes are sharp enough to decode
       codeReader.decodeFromConstraints(
-        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
         videoRef.current,
         async (result, err) => {
           // err is thrown every frame when no barcode is visible — that's normal
@@ -512,42 +512,49 @@ function Inventory() {
           color: #999;
         }
 
-        /* Scanner modal */
+        /* Scanner modal — fullscreen so barcode fills the frame */
         .scanner-overlay {
           position: fixed;
           inset: 0;
-          background: rgba(0,0,0,0.85);
+          background: #000;
           display: flex;
-          align-items: center;
-          justify-content: center;
+          flex-direction: column;
           z-index: 1000;
-          padding: 1rem;
         }
 
         .scanner-modal {
-          background: white;
-          border-radius: 16px;
-          padding: 1.25rem;
-          width: 100%;
-          max-width: 480px;
           display: flex;
           flex-direction: column;
-          gap: 1rem;
+          width: 100%;
+          height: 100%;
+          gap: 0;
+        }
+
+        .scanner-topbar {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          z-index: 10;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 1rem;
+          background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
         }
 
         .scanner-title {
           font-family: 'Space Mono', monospace;
           font-size: 1.1rem;
-          color: var(--primary, #2d5016);
+          color: white;
           margin: 0;
         }
 
         .scanner-video-wrap {
           position: relative;
-          border-radius: 10px;
-          overflow: hidden;
+          flex: 1;
           background: #000;
-          aspect-ratio: 4/3;
+          overflow: hidden;
         }
 
         .scanner-video-wrap video {
@@ -559,10 +566,25 @@ function Inventory() {
 
         .scanner-crosshair {
           position: absolute;
-          inset: 20%;
-          border: 2px solid rgba(255, 107, 53, 0.8);
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          width: 70%;
+          height: 25%;
+          border: 2px solid rgba(255, 107, 53, 0.9);
           border-radius: 8px;
           pointer-events: none;
+          box-shadow: 0 0 0 9999px rgba(0,0,0,0.4);
+        }
+
+        .scanner-bottom {
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          z-index: 10;
+          padding: 1rem;
+          background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);
         }
 
         .scan-status {
@@ -749,24 +771,25 @@ function Inventory() {
 
       {/* Barcode Scanner Modal */}
       {showScanner && (
-        <div className="scanner-overlay" onClick={e => { if (e.target === e.currentTarget) stopScanner() }}>
+        <div className="scanner-overlay">
           <div className="scanner-modal">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 className="scanner-title">Scan Barcode</h2>
-              <button className="btn-close" onClick={stopScanner}>✕ Close</button>
-            </div>
-
             {!scannedProduct ? (
               <>
+                <div className="scanner-topbar">
+                  <h2 className="scanner-title">Scan Barcode</h2>
+                  <button className="btn-close" onClick={stopScanner} style={{ background: 'rgba(255,255,255,0.2)', color: 'white', border: 'none', borderRadius: '6px', padding: '0.4rem 0.75rem', cursor: 'pointer' }}>✕ Close</button>
+                </div>
                 <div className="scanner-video-wrap">
                   <video ref={videoRef} autoPlay playsInline muted />
                   <div className="scanner-crosshair" />
                 </div>
-                <p className="scan-status">{scanStatus}</p>
-                {scanError && <p className="scan-error">{scanError}</p>}
+                <div className="scanner-bottom">
+                  <p className="scan-status" style={{ color: 'white', textAlign: 'center', margin: 0, fontSize: '0.9rem' }}>{scanStatus}</p>
+                  {scanError && <p className="scan-error" style={{ color: '#ff6b6b', textAlign: 'center', margin: '0.5rem 0 0', fontSize: '0.85rem' }}>{scanError}</p>}
+                </div>
               </>
             ) : (
-              <div className="scan-confirm">
+              <div className="scan-confirm" style={{ background: 'white', borderRadius: '16px 16px 0 0', padding: '1.25rem', marginTop: 'auto', maxHeight: '80vh', overflowY: 'auto' }}>
                 <div className="scan-confirm-title">
                   {scannedProduct.notFound ? 'Product not found' : 'Product found!'}
                 </div>
