@@ -6,6 +6,7 @@ import MealPlanner from './pages/MealPlanner'
 import ShoppingLists from './pages/ShoppingLists'
 import Recipes from './pages/Recipes'
 import Nutrition from './pages/Nutrition'
+import Inventory from './pages/Inventory'
 import './App.css'
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
               <Link to="/week">This Week</Link>
               <Link to="/planner">Plan Meals</Link>
               <Link to="/shopping">Shopping</Link>
+              <Link to="/inventory">Inventory</Link>
               <Link to="/recipes">Recipes</Link>
             </div>
           </div>
@@ -32,6 +34,7 @@ function App() {
             <Route path="/nutrition" element={<Nutrition />} />
             <Route path="/planner" element={<MealPlanner />} />
             <Route path="/shopping" element={<ShoppingLists />} />
+            <Route path="/inventory" element={<Inventory />} />
             <Route path="/recipes" element={<Recipes />} />
           </Routes>
         </main>

@@ -78,6 +78,30 @@ function MealPlanner() {
     return mealPlan.some(m => m.recipe_id === recipeId)
   }
 
+  // Adjust inventory when a recipe is assigned (+1 = restore, -1 = deduct)
+  async function adjustInventory(recipeId, direction) {
+    const { data: ris } = await supabase
+      .from('recipe_ingredients')
+      .select('ingredient_id, quantity, unit')
+      .eq('recipe_id', recipeId)
+
+    for (const ri of ris || []) {
+      const { data: inv } = await supabase
+        .from('inventory')
+        .select('id, quantity, unit')
+        .eq('ingredient_id', ri.ingredient_id)
+        .maybeSingle()
+
+      if (!inv) continue                   // not stocked — skip
+      if (inv.unit !== ri.unit) continue   // unit mismatch — skip
+
+      await supabase
+        .from('inventory')
+        .update({ quantity: Math.max(0, inv.quantity + direction * ri.quantity) })
+        .eq('id', inv.id)
+    }
+  }
+
   // Assign a recipe to a date (used by both drag-drop and tap-to-select)
   async function assignMeal(date, recipe) {
     if (!recipe) return
@@ -86,6 +110,7 @@ function MealPlanner() {
     try {
       const existingMeal = getMealForDate(date)
       if (existingMeal) {
+        await adjustInventory(existingMeal.recipe_id, +1)
         const { error } = await supabase
           .from('meal_plan')
           .update({ recipe_id: recipe.id, day_of_week: dayName })
@@ -97,6 +122,7 @@ function MealPlanner() {
           .insert({ date: dateStr, day_of_week: dayName, recipe_id: recipe.id })
         if (error) throw error
       }
+      await adjustInventory(recipe.id, -1)
       await loadData()
     } catch (error) {
       console.error('Error saving meal:', error)
@@ -133,11 +159,18 @@ function MealPlanner() {
 
   async function removeMeal(mealId) {
     try {
+      const meal = mealPlan.find(m => m.id === mealId)
+      const today = format(new Date(), 'yyyy-MM-dd')
+      // Only restore inventory if the meal hasn't happened yet
+      if (meal && meal.date > today) {
+        await adjustInventory(meal.recipe_id, +1)
+      }
+
       const { error } = await supabase
         .from('meal_plan')
         .delete()
         .eq('id', mealId)
-      
+
       if (error) throw error
       await loadData()
     } catch (error) {
