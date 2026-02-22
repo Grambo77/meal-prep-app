@@ -15,6 +15,31 @@ const EMPTY_FORM = {
 
 const EMPTY_INGREDIENT = { name: '', quantity: '', unit: '', notes: '' }
 
+// USDA FoodData Central — nutrient IDs for per-100g values
+const USDA_NUTRIENT_IDS = { calories: 1008, protein: 1003, carbs: 1005, fat: 1004, fiber: 1079 }
+
+async function lookupNutrition(name) {
+  try {
+    const res = await fetch(
+      `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(name)}&api_key=DEMO_KEY&dataType=Foundation,SR%20Legacy&pageSize=1`
+    )
+    if (!res.ok) return null
+    const { foods } = await res.json()
+    const food = foods?.[0]
+    if (!food) return null
+    const get = (id) => food.foodNutrients.find(n => n.nutrientId === id)?.value ?? null
+    return {
+      calories_per_100g: get(USDA_NUTRIENT_IDS.calories),
+      protein_per_100g: get(USDA_NUTRIENT_IDS.protein),
+      carbs_per_100g: get(USDA_NUTRIENT_IDS.carbs),
+      fat_per_100g: get(USDA_NUTRIENT_IDS.fat),
+      fiber_per_100g: get(USDA_NUTRIENT_IDS.fiber),
+    }
+  } catch {
+    return null
+  }
+}
+
 function parseQuantity(str) {
   if (!str || !str.trim()) return 0
   const s = str.trim()
@@ -210,6 +235,7 @@ function Recipes() {
 
       // Handle ingredients — if anything fails, delete the recipe we just created
       const validIngredients = ingredients.filter(i => i.name.trim())
+      const nutritionLookups = []
       try { for (const ing of validIngredients) {
         // Insert ingredient if it doesn't exist yet (preserve existing data on conflict)
         await supabase
@@ -224,14 +250,25 @@ function Recipes() {
             store_section: 'other',
           }, { onConflict: 'name', ignoreDuplicates: true })
 
-        // Fetch the ingredient ID (whether just inserted or already existed)
+        // Fetch the ingredient (check if nutrition data is missing)
         const { data: ingData, error: ingError } = await supabase
           .from('ingredients')
-          .select('id')
+          .select('id, calories_per_100g')
           .eq('name', ing.name.trim())
           .single()
 
         if (ingError) throw ingError
+
+        // Queue USDA nutrition lookup for ingredients with no data yet
+        if (ingData.calories_per_100g == null) {
+          nutritionLookups.push(
+            lookupNutrition(ing.name.trim()).then(nutrition => {
+              if (nutrition) {
+                return supabase.from('ingredients').update(nutrition).eq('id', ingData.id)
+              }
+            })
+          )
+        }
 
         // Link to recipe (ignore if this ingredient is already linked, e.g. duplicate in import)
         const { error: riError } = await supabase
@@ -251,6 +288,9 @@ function Recipes() {
         await supabase.from('recipes').delete().eq('id', recipeData.id)
         throw ingErr
       }
+
+      // Run all USDA lookups in parallel (after recipe is safely saved)
+      await Promise.all(nutritionLookups)
 
       await loadRecipes()
       setView('list')
