@@ -147,9 +147,9 @@ function Inventory() {
     const timer = setTimeout(() => {
       if (!videoRef.current) return
       setScanStatus('Point camera at a barcode...')
-      // ideal: 'environment' falls back gracefully if no rear camera
+      // Request HD resolution so barcodes are sharp enough to decode
       codeReader.decodeFromConstraints(
-        { video: { facingMode: { ideal: 'environment' } } },
+        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
         videoRef.current,
         async (result, err) => {
           // err is thrown every frame when no barcode is visible — that's normal
