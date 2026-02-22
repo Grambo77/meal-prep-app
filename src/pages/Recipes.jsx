@@ -1,11 +1,29 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 
+const EMPTY_FORM = {
+  name: '',
+  description: '',
+  cuisine_type: '',
+  difficulty: 'Easy',
+  prep_time_minutes: '',
+  cook_time_minutes: '',
+  servings: '',
+  instructions: '',
+}
+
+const EMPTY_INGREDIENT = { name: '', quantity: '', unit: '', notes: '' }
+
 function Recipes() {
   const [recipes, setRecipes] = useState([])
   const [selectedRecipe, setSelectedRecipe] = useState(null)
   const [recipeIngredients, setRecipeIngredients] = useState([])
   const [loading, setLoading] = useState(true)
+  const [view, setView] = useState('list') // 'list' | 'detail' | 'add'
+  const [form, setForm] = useState(EMPTY_FORM)
+  const [ingredients, setIngredients] = useState([{ ...EMPTY_INGREDIENT }])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     loadRecipes()
@@ -29,15 +47,12 @@ function Recipes() {
 
   async function viewRecipe(recipe) {
     setSelectedRecipe(recipe)
+    setView('detail')
 
-    // Load ingredients for this recipe
     try {
       const { data, error } = await supabase
         .from('recipe_ingredients')
-        .select(`
-          *,
-          ingredient:ingredients(name, category)
-        `)
+        .select(`*, ingredient:ingredients(name, category)`)
         .eq('recipe_id', recipe.id)
 
       if (error) throw error
@@ -47,115 +62,380 @@ function Recipes() {
     }
   }
 
+  function goBack() {
+    setSelectedRecipe(null)
+    setView('list')
+  }
+
+  function openAddForm() {
+    setForm(EMPTY_FORM)
+    setIngredients([{ ...EMPTY_INGREDIENT }])
+    setError('')
+    setView('add')
+  }
+
+  function updateIngredient(index, field, value) {
+    setIngredients(prev => prev.map((ing, i) => i === index ? { ...ing, [field]: value } : ing))
+  }
+
+  function addIngredientRow() {
+    setIngredients(prev => [...prev, { ...EMPTY_INGREDIENT }])
+  }
+
+  function removeIngredientRow(index) {
+    setIngredients(prev => prev.filter((_, i) => i !== index))
+  }
+
+  async function saveRecipe(e) {
+    e.preventDefault()
+    if (!form.name.trim()) { setError('Recipe name is required.'); return }
+    setSaving(true)
+    setError('')
+
+    try {
+      // Insert recipe
+      const { data: recipeData, error: recipeError } = await supabase
+        .from('recipes')
+        .insert({
+          name: form.name.trim(),
+          description: form.description.trim() || null,
+          cuisine_type: form.cuisine_type.trim() || null,
+          difficulty: form.difficulty,
+          prep_time_minutes: parseInt(form.prep_time_minutes) || 0,
+          cook_time_minutes: parseInt(form.cook_time_minutes) || 0,
+          servings: parseInt(form.servings) || null,
+          instructions: form.instructions.trim() || null,
+        })
+        .select()
+        .single()
+
+      if (recipeError) throw recipeError
+
+      // Handle ingredients
+      const validIngredients = ingredients.filter(i => i.name.trim())
+      for (const ing of validIngredients) {
+        // Upsert ingredient by name
+        const { data: ingData, error: ingError } = await supabase
+          .from('ingredients')
+          .upsert({ name: ing.name.trim() }, { onConflict: 'name' })
+          .select()
+          .single()
+
+        if (ingError) throw ingError
+
+        // Link to recipe
+        const { error: riError } = await supabase
+          .from('recipe_ingredients')
+          .insert({
+            recipe_id: recipeData.id,
+            ingredient_id: ingData.id,
+            quantity: ing.quantity.trim() || null,
+            unit: ing.unit.trim() || null,
+            notes: ing.notes.trim() || null,
+          })
+
+        if (riError) throw riError
+      }
+
+      await loadRecipes()
+      setView('list')
+    } catch (err) {
+      console.error('Error saving recipe:', err)
+      setError('Failed to save recipe. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading) {
     return <div className="loading">Loading recipes...</div>
   }
 
-  return (
-    <div className="recipes">
-      <h1 style={{ marginBottom: '2rem', fontFamily: 'Space Mono, monospace' }}>
-        📖 Recipes
-      </h1>
+  // --- Add Recipe Form ---
+  if (view === 'add') {
+    return (
+      <div className="recipes">
+        <style>{`
+          .recipe-form { max-width: 800px; }
+          .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+          @media (max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
+          .form-group { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1rem; }
+          .form-group label { font-weight: 600; font-size: 0.85rem; color: var(--text-muted, #666); }
+          .form-group input, .form-group select, .form-group textarea {
+            padding: 0.6rem 0.75rem;
+            border: 2px solid var(--border, #e0e0e0);
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-family: inherit;
+            transition: border-color 0.2s;
+          }
+          .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: var(--primary, #2d5016);
+          }
+          .form-group textarea { resize: vertical; min-height: 120px; }
+          .ingredient-row { display: grid; grid-template-columns: 2fr 1fr 1fr 2fr auto; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+          @media (max-width: 600px) { .ingredient-row { grid-template-columns: 1fr 1fr; } }
+          .ingredient-row input { padding: 0.5rem; border: 2px solid var(--border, #e0e0e0); border-radius: 6px; font-size: 0.85rem; font-family: inherit; }
+          .ingredient-row input:focus { outline: none; border-color: var(--primary, #2d5016); }
+          .remove-row { background: none; border: none; color: #cc0000; font-size: 1.2rem; cursor: pointer; padding: 0.25rem 0.5rem; border-radius: 4px; }
+          .remove-row:hover { background: #fff0f0; }
+          .form-error { color: #cc0000; font-size: 0.9rem; margin-bottom: 1rem; }
+          .ingredient-header { display: grid; grid-template-columns: 2fr 1fr 1fr 2fr auto; gap: 0.5rem; font-size: 0.75rem; font-weight: 600; color: var(--text-muted, #666); margin-bottom: 0.25rem; }
+        `}</style>
 
-      {!selectedRecipe ? (
-        // Recipe List View
-        <div className="grid grid-2">
-          {recipes.map(recipe => (
-            <div key={recipe.id} className="card" style={{ cursor: 'pointer' }} onClick={() => viewRecipe(recipe)}>
-              <h3 style={{ marginBottom: '0.5rem' }}>{recipe.name}</h3>
-              
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-                {recipe.cuisine_type && (
-                  <span className="badge info">{recipe.cuisine_type}</span>
-                )}
-                <span className="badge" style={{ background: 'var(--bg)', color: 'var(--text)' }}>
-                  {recipe.prep_time_minutes + recipe.cook_time_minutes} min
-                </span>
-                <span className="badge success">{recipe.difficulty}</span>
+        <button onClick={goBack} className="btn secondary" style={{ marginBottom: '1.5rem' }}>
+          ← Back to Recipes
+        </button>
+
+        <div className="card recipe-form">
+          <h2 style={{ marginBottom: '1.5rem', fontFamily: 'Space Mono, monospace' }}>Add New Recipe</h2>
+
+          {error && <p className="form-error">{error}</p>}
+
+          <form onSubmit={saveRecipe}>
+            <div className="form-group">
+              <label>Recipe Name *</label>
+              <input
+                type="text"
+                placeholder="e.g. Chicken Stir-Fry"
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Description</label>
+              <input
+                type="text"
+                placeholder="Short description"
+                value={form.description}
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+              />
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Cuisine Type</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Asian, Mexican, Italian"
+                  value={form.cuisine_type}
+                  onChange={e => setForm(f => ({ ...f, cuisine_type: e.target.value }))}
+                />
               </div>
+              <div className="form-group">
+                <label>Difficulty</label>
+                <select value={form.difficulty} onChange={e => setForm(f => ({ ...f, difficulty: e.target.value }))}>
+                  <option>Easy</option>
+                  <option>Medium</option>
+                  <option>Hard</option>
+                </select>
+              </div>
+            </div>
 
-              {recipe.description && (
-                <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-                  {recipe.description}
-                </p>
-              )}
+            <div className="form-row">
+              <div className="form-group">
+                <label>Prep Time (minutes)</label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="15"
+                  value={form.prep_time_minutes}
+                  onChange={e => setForm(f => ({ ...f, prep_time_minutes: e.target.value }))}
+                />
+              </div>
+              <div className="form-group">
+                <label>Cook Time (minutes)</label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="30"
+                  value={form.cook_time_minutes}
+                  onChange={e => setForm(f => ({ ...f, cook_time_minutes: e.target.value }))}
+                />
+              </div>
+            </div>
 
-              <button className="btn" onClick={(e) => { e.stopPropagation(); viewRecipe(recipe); }}>
-                View Recipe →
+            <div className="form-group" style={{ maxWidth: '200px' }}>
+              <label>Servings</label>
+              <input
+                type="number"
+                min="1"
+                placeholder="4"
+                value={form.servings}
+                onChange={e => setForm(f => ({ ...f, servings: e.target.value }))}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Instructions</label>
+              <textarea
+                placeholder="Step by step instructions..."
+                value={form.instructions}
+                onChange={e => setForm(f => ({ ...f, instructions: e.target.value }))}
+              />
+            </div>
+
+            {/* Ingredients */}
+            <h3 style={{ fontFamily: 'Space Mono, monospace', marginBottom: '0.75rem' }}>Ingredients</h3>
+            <div className="ingredient-header">
+              <span>Ingredient</span>
+              <span>Quantity</span>
+              <span>Unit</span>
+              <span>Notes</span>
+              <span></span>
+            </div>
+            {ingredients.map((ing, i) => (
+              <div key={i} className="ingredient-row">
+                <input
+                  type="text"
+                  placeholder="e.g. Chicken breast"
+                  value={ing.name}
+                  onChange={e => updateIngredient(i, 'name', e.target.value)}
+                />
+                <input
+                  type="text"
+                  placeholder="e.g. 500"
+                  value={ing.quantity}
+                  onChange={e => updateIngredient(i, 'quantity', e.target.value)}
+                />
+                <input
+                  type="text"
+                  placeholder="g, ml, cups"
+                  value={ing.unit}
+                  onChange={e => updateIngredient(i, 'unit', e.target.value)}
+                />
+                <input
+                  type="text"
+                  placeholder="e.g. diced"
+                  value={ing.notes}
+                  onChange={e => updateIngredient(i, 'notes', e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="remove-row"
+                  onClick={() => removeIngredientRow(i)}
+                  title="Remove"
+                >×</button>
+              </div>
+            ))}
+
+            <button
+              type="button"
+              className="btn secondary"
+              style={{ marginBottom: '1.5rem', fontSize: '0.85rem' }}
+              onClick={addIngredientRow}
+            >
+              + Add Ingredient
+            </button>
+
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <button type="submit" className="btn" disabled={saving}>
+                {saving ? 'Saving...' : 'Save Recipe'}
+              </button>
+              <button type="button" className="btn secondary" onClick={goBack}>
+                Cancel
               </button>
             </div>
-          ))}
+          </form>
         </div>
-      ) : (
-        // Recipe Detail View
-        <div>
-          <button 
-            onClick={() => setSelectedRecipe(null)} 
-            className="btn secondary"
-            style={{ marginBottom: '1.5rem' }}
-          >
-            ← Back to Recipes
-          </button>
+      </div>
+    )
+  }
 
-          <div className="card">
-            <h2 style={{ marginBottom: '1rem', fontFamily: 'Space Mono, monospace' }}>
-              {selectedRecipe.name}
-            </h2>
+  // --- Recipe Detail View ---
+  if (view === 'detail' && selectedRecipe) {
+    return (
+      <div className="recipes">
+        <button onClick={goBack} className="btn secondary" style={{ marginBottom: '1.5rem' }}>
+          ← Back to Recipes
+        </button>
 
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-              {selectedRecipe.cuisine_type && (
-                <span className="badge info">{selectedRecipe.cuisine_type}</span>
+        <div className="card">
+          <h2 style={{ marginBottom: '1rem', fontFamily: 'Space Mono, monospace' }}>
+            {selectedRecipe.name}
+          </h2>
+
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+            {selectedRecipe.cuisine_type && (
+              <span className="badge info">{selectedRecipe.cuisine_type}</span>
+            )}
+            <span className="badge">Prep: {selectedRecipe.prep_time_minutes} min</span>
+            <span className="badge">Cook: {selectedRecipe.cook_time_minutes} min</span>
+            <span className="badge success">Serves: {selectedRecipe.servings}</span>
+          </div>
+
+          {selectedRecipe.description && (
+            <p style={{ marginBottom: '2rem', color: 'var(--text-muted)' }}>
+              {selectedRecipe.description}
+            </p>
+          )}
+
+          <div className="grid grid-2">
+            <div>
+              <h3 style={{ marginBottom: '1rem', fontFamily: 'Space Mono, monospace' }}>📝 Ingredients</h3>
+              {recipeIngredients.length === 0 ? (
+                <p style={{ color: 'var(--text-muted)' }}>No ingredients listed.</p>
+              ) : (
+                <ul style={{ lineHeight: '2' }}>
+                  {recipeIngredients.map(ri => (
+                    <li key={ri.id}>
+                      {ri.quantity} {ri.unit} {ri.ingredient.name}
+                      {ri.notes && <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}> ({ri.notes})</span>}
+                    </li>
+                  ))}
+                </ul>
               )}
-              <span className="badge">
-                Prep: {selectedRecipe.prep_time_minutes} min
-              </span>
-              <span className="badge">
-                Cook: {selectedRecipe.cook_time_minutes} min
-              </span>
-              <span className="badge success">
-                Serves: {selectedRecipe.servings}
-              </span>
             </div>
 
-            {selectedRecipe.description && (
-              <p style={{ marginBottom: '2rem', color: 'var(--text-muted)' }}>
-                {selectedRecipe.description}
-              </p>
-            )}
-
-            <div className="grid grid-2">
-              {/* Ingredients */}
-              <div>
-                <h3 style={{ marginBottom: '1rem', fontFamily: 'Space Mono, monospace' }}>
-                  📝 Ingredients
-                </h3>
-                {recipeIngredients.length === 0 ? (
-                  <p style={{ color: 'var(--text-muted)' }}>Loading ingredients...</p>
-                ) : (
-                  <ul style={{ lineHeight: '2' }}>
-                    {recipeIngredients.map(ri => (
-                      <li key={ri.id}>
-                        {ri.quantity} {ri.unit} {ri.ingredient.name}
-                        {ri.notes && <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}> ({ri.notes})</span>}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              {/* Instructions */}
-              <div>
-                <h3 style={{ marginBottom: '1rem', fontFamily: 'Space Mono, monospace' }}>
-                  👨‍🍳 Instructions
-                </h3>
-                <div style={{ whiteSpace: 'pre-line', lineHeight: '1.8' }}>
-                  {selectedRecipe.instructions}
-                </div>
+            <div>
+              <h3 style={{ marginBottom: '1rem', fontFamily: 'Space Mono, monospace' }}>👨‍🍳 Instructions</h3>
+              <div style={{ whiteSpace: 'pre-line', lineHeight: '1.8' }}>
+                {selectedRecipe.instructions}
               </div>
             </div>
           </div>
         </div>
-      )}
+      </div>
+    )
+  }
+
+  // --- Recipe List View ---
+  return (
+    <div className="recipes">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+        <h1 style={{ fontFamily: 'Space Mono, monospace', margin: 0 }}>📖 Recipes</h1>
+        <button className="btn" onClick={openAddForm}>+ Add Recipe</button>
+      </div>
+
+      <div className="grid grid-2">
+        {recipes.map(recipe => (
+          <div key={recipe.id} className="card" style={{ cursor: 'pointer' }} onClick={() => viewRecipe(recipe)}>
+            <h3 style={{ marginBottom: '0.5rem' }}>{recipe.name}</h3>
+
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+              {recipe.cuisine_type && (
+                <span className="badge info">{recipe.cuisine_type}</span>
+              )}
+              <span className="badge" style={{ background: 'var(--bg)', color: 'var(--text)' }}>
+                {recipe.prep_time_minutes + recipe.cook_time_minutes} min
+              </span>
+              <span className="badge success">{recipe.difficulty}</span>
+            </div>
+
+            {recipe.description && (
+              <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                {recipe.description}
+              </p>
+            )}
+
+            <button className="btn" onClick={e => { e.stopPropagation(); viewRecipe(recipe) }}>
+              View Recipe →
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
