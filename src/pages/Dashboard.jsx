@@ -170,9 +170,9 @@ function Dashboard() {
         <p style={{ opacity: 0.9 }}>
           2.5 hours of meal prep = 4 nights of 15-minute dinners + family time from 7:15-9:00 PM
         </p>
-        <button className="btn" style={{ marginTop: '1rem', background: 'white', color: 'var(--accent)' }}>
+        <Link to="/week" className="btn" style={{ marginTop: '1rem', background: 'white', color: 'var(--accent)' }}>
           View Prep Guide →
-        </button>
+        </Link>
       </div>
     </div>
   )
