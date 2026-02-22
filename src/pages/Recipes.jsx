@@ -233,16 +233,16 @@ function Recipes() {
 
         if (ingError) throw ingError
 
-        // Link to recipe
+        // Link to recipe (ignore if this ingredient is already linked, e.g. duplicate in import)
         const { error: riError } = await supabase
           .from('recipe_ingredients')
-          .insert({
+          .upsert({
             recipe_id: recipeData.id,
             ingredient_id: ingData.id,
             quantity: parseQuantity(ing.quantity),
             unit: ing.unit.trim() || '',
             notes: ing.notes.trim() || '',
-          })
+          }, { onConflict: 'recipe_id,ingredient_id', ignoreDuplicates: true })
 
         if (riError) throw riError
       }
