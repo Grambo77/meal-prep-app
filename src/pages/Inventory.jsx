@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { BrowserMultiFormatReader } from '@zxing/library'
+import { BrowserMultiFormatReader, DecodeHintType } from '@zxing/library'
 import { supabase } from '../supabaseClient'
 
 function Inventory() {
@@ -138,23 +138,30 @@ function Inventory() {
   useEffect(() => {
     if (!showScanner || scannedProduct) return
 
-    const codeReader = new BrowserMultiFormatReader()
+    const hints = new Map()
+    hints.set(DecodeHintType.TRY_HARDER, true)
+    const codeReader = new BrowserMultiFormatReader(hints)
     codeReaderRef.current = codeReader
 
     // Small delay to let the video element mount
     const timer = setTimeout(() => {
       if (!videoRef.current) return
       setScanStatus('Point camera at a barcode...')
-      codeReader.decodeFromVideoDevice(null, videoRef.current, async (result, err) => {
-        if (result && !hasScannedRef.current) {
-          hasScannedRef.current = true
-          const barcode = result.getText()
-          setScanStatus(`Barcode detected: ${barcode}`)
-          codeReader.reset()
-          await lookupBarcode(barcode)
+      // Use environment (rear) camera and TRY_HARDER for reliable barcode detection
+      codeReader.decodeFromConstraints(
+        { video: { facingMode: 'environment' } },
+        videoRef.current,
+        async (result, err) => {
+          if (result && !hasScannedRef.current) {
+            hasScannedRef.current = true
+            const barcode = result.getText()
+            setScanStatus(`Barcode detected: ${barcode}`)
+            codeReader.reset()
+            await lookupBarcode(barcode)
+          }
         }
-      })
-    }, 500)
+      )
+    }, 800)
 
     return () => {
       clearTimeout(timer)
