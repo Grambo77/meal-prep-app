@@ -226,7 +226,7 @@ function Recipes() {
           .insert({
             recipe_id: recipeData.id,
             ingredient_id: ingData.id,
-            quantity: ing.quantity.trim() || null,
+            quantity: ing.quantity.trim() || '',
             unit: ing.unit.trim() || '',
             notes: ing.notes.trim() || '',
           })
