@@ -98,7 +98,7 @@ function Recipes() {
     try {
       const { data, error } = await supabase
         .from('recipe_ingredients')
-        .select(`*, ingredient:ingredients(name, category)`)
+        .select(`*, ingredient:ingredients(name, category, calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g, fiber_per_100g)`)
         .eq('recipe_id', recipe.id)
 
       if (error) throw error
@@ -666,6 +666,51 @@ function Recipes() {
               </div>
             </div>
           </div>
+
+          {/* Nutrition per serving */}
+          {(() => {
+            const servings = selectedRecipe.servings || 1
+            let cal = 0, protein = 0, carbs = 0, fat = 0, fiber = 0, hasData = false
+            recipeIngredients.forEach(ri => {
+              const ing = ri.ingredient
+              if (ing.calories_per_100g != null) {
+                const m = ri.quantity / 100
+                cal += (ing.calories_per_100g || 0) * m
+                protein += (ing.protein_per_100g || 0) * m
+                carbs += (ing.carbs_per_100g || 0) * m
+                fat += (ing.fat_per_100g || 0) * m
+                fiber += (ing.fiber_per_100g || 0) * m
+                hasData = true
+              }
+            })
+            if (!hasData) return (
+              <p style={{ marginTop: '1.5rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Nutrition data not yet available for this recipe's ingredients.
+              </p>
+            )
+            const s = (n) => Math.round(n / servings)
+            return (
+              <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--bg)', borderRadius: '8px' }}>
+                <h3 style={{ fontFamily: 'Space Mono, monospace', marginBottom: '0.75rem', fontSize: '1rem' }}>
+                  📊 Nutrition per serving
+                </h3>
+                <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                  {[
+                    { label: 'Calories', value: s(cal), unit: 'kcal' },
+                    { label: 'Protein', value: s(protein), unit: 'g' },
+                    { label: 'Carbs', value: s(carbs), unit: 'g' },
+                    { label: 'Fat', value: s(fat), unit: 'g' },
+                    { label: 'Fiber', value: s(fiber), unit: 'g' },
+                  ].map(({ label, value, unit }) => (
+                    <div key={label} style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: 'var(--primary)' }}>{value}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{label} ({unit})</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
         </div>
       </div>
     )
