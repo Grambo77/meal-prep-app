@@ -21,7 +21,7 @@ const USDA_NUTRIENT_IDS = { calories: 1008, protein: 1003, carbs: 1005, fat: 100
 async function lookupNutrition(name) {
   try {
     const res = await fetch(
-      `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(name)}&api_key=DEMO_KEY&dataType=Foundation,SR%20Legacy&pageSize=1`
+      `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(name)}&api_key=nTud1nJ7P8qOowcinSd5ONMYmGLF53LaQVWAOrgH&dataType=Foundation,SR%20Legacy,Survey%20%28FNDDS%29&pageSize=1`
     )
     if (!res.ok) return null
     const { foods } = await res.json()
