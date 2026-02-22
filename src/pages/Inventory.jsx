@@ -147,11 +147,12 @@ function Inventory() {
     const timer = setTimeout(() => {
       if (!videoRef.current) return
       setScanStatus('Point camera at a barcode...')
-      // Use environment (rear) camera and TRY_HARDER for reliable barcode detection
+      // ideal: 'environment' falls back gracefully if no rear camera
       codeReader.decodeFromConstraints(
-        { video: { facingMode: 'environment' } },
+        { video: { facingMode: { ideal: 'environment' } } },
         videoRef.current,
         async (result, err) => {
+          // err is thrown every frame when no barcode is visible — that's normal
           if (result && !hasScannedRef.current) {
             hasScannedRef.current = true
             const barcode = result.getText()
@@ -160,7 +161,11 @@ function Inventory() {
             await lookupBarcode(barcode)
           }
         }
-      )
+      ).catch(err => {
+        console.error('Scanner error:', err)
+        setScanError(`Camera error: ${err.message}. Try refreshing and allowing camera access.`)
+        setScanStatus('')
+      })
     }, 800)
 
     return () => {
